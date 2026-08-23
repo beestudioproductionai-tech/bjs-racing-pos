@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 
-function VehicleModelModal({ isOpen, onClose, modelToEdit, onSave, brands, kategoris }) {
+function VehicleModelModal({ isOpen, onClose, modelToEdit, onSave, brands, kategoris, prefillBrandId }) {
   const [name, setName] = useState("");
   const [brandId, setBrandId] = useState("");
   const [kategoriId, setKategoriId] = useState("");
@@ -14,10 +14,10 @@ function VehicleModelModal({ isOpen, onClose, modelToEdit, onSave, brands, kateg
       setKategoriId(modelToEdit.vehicle_kategori_id || "");
     } else {
       setName("");
-      setBrandId("");
+      setBrandId(prefillBrandId || "");
       setKategoriId("");
     }
-  }, [modelToEdit, isOpen]);
+  }, [modelToEdit, isOpen, prefillBrandId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,7 +37,12 @@ function VehicleModelModal({ isOpen, onClose, modelToEdit, onSave, brands, kateg
       if (error) throw error;
       onSave();
     } catch (error) {
-      alert("Gagal menyimpan: " + error.message);
+      const msg = error?.message || "";
+      alert(
+        msg.includes("duplicate key") || msg.includes("unique")
+          ? "Tipe motor dengan nama itu sudah ada di merek tersebut."
+          : "Gagal menyimpan: " + msg,
+      );
     } finally {
       setSaving(false);
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import imageCompression from "browser-image-compression";
 import { supabase } from "../supabaseClient";
 import DynamicPricingBadge from "./DynamicPricingBadge.jsx";
@@ -45,21 +45,17 @@ function ProductModal({
     lini_produk: "",
     color_hex: "",
     tags: "",
-    vehicle_kategori_id: "",
-    vehicle_brand_id: "",
-    vehicle_model_id: "",
-    vehicle_code_id: "",
-    selectedVehicleModels: [],
-    hasVehicleCompatibility: false,
   };
 
   const [product, setProduct] = useState(initialProductState);
   const [originalHargaBeli, setOriginalHargaBeli] = useState(null);
   const [hasVehicleCompatibility, setHasVehicleCompatibility] = useState(false);
-  const [vehicleKategoris, setVehicleKategoris] = useState([]);
-  const [vehicleBrands, setVehicleBrands] = useState([]);
-  const [vehicleModels, setVehicleModels] = useState([]);
-  const [vehicleCodes, setVehicleCodes] = useState([]);
+  const [selectedModelIds, setSelectedModelIds] = useState([]);
+  const [allModels, setAllModels] = useState([]);
+  const [modelSearch, setModelSearch] = useState("");
+  const [loadingVehicleData, setLoadingVehicleData] = useState(false);
+  // Guard: pivot hanya disinkronkan bila data kompatibilitas sudah termuat (mencegah wipe tak sengaja)
+  const compatLoadedRef = useRef(false);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -102,57 +98,42 @@ function ProductModal({
           color_hex: productToEdit.color_hex || "",
           tags: productToEdit.tags || "",
           specifications: productToEdit.specifications || "",
-          vehicle_kategori_id: productToEdit.vehicle_kategori_id || "",
-          vehicle_brand_id: productToEdit.vehicle_brand_id || "",
-          vehicle_model_id: productToEdit.vehicle_model_id || "",
-          vehicle_code_id: productToEdit.vehicle_code_id || "",
-          selectedVehicleModels: [],
         });
       } else {
         setProduct(initialProductState);
         setOriginalHargaBeli(null);
       }
-      fetchVehicleKategoris();
-      fetchVehicleBrands();
+      setSelectedModelIds([]);
+      setModelSearch("");
+      setHasVehicleCompatibility(false);
+      // Produk baru tidak punya pivot lama → aman sinkron sejak awal;
+      // produk edit → tunggu prefill pivot selesai.
+      compatLoadedRef.current = !productToEdit;
+      fetchAllVehicleModels();
     }
   }, [productToEdit, isOpen]);
 
+  // Prefill kompatibilitas tersimpan saat edit (depend on isOpen agar reopen selalu refresh)
   useEffect(() => {
-    if (product.vehicle_brand_id) {
-      fetchVehicleModels(product.vehicle_brand_id);
-    } else {
-      setVehicleModels([]);
-      setVehicleCodes([]);
-    }
-  }, [product.vehicle_brand_id]);
-
-  useEffect(() => {
-    if (product.vehicle_brand_id && product.vehicle_model_id) {
-      fetchVehicleCodes(product.vehicle_brand_id, product.vehicle_model_id);
-    } else {
-      setVehicleCodes([]);
-    }
-  }, [product.vehicle_brand_id, product.vehicle_model_id]);
-
-  useEffect(() => {
-    if (productToEdit && productToEdit.id) {
-      supabase
-        .from("product_vehicle_compatibilities")
-        .select("vehicle_model_id")
-        .eq("product_id", productToEdit.id)
-        .then(({ data }) => {
-          if (data && data.length > 0) {
-            const modelIds = data.map((c) => c.vehicle_model_id);
-            setProduct((prev) => ({ ...prev, selectedVehicleModels: modelIds }));
-            setHasVehicleCompatibility(true);
-          } else {
-            setHasVehicleCompatibility(false);
-          }
-        });
-    } else {
-      setHasVehicleCompatibility(false);
-    }
-  }, [productToEdit]);
+    if (!isOpen || !productToEdit?.id) return undefined;
+    let isActive = true;
+    supabase
+      .from("product_vehicle_compatibilities")
+      .select("vehicle_model_id")
+      .eq("product_id", productToEdit.id)
+      .then(({ data }) => {
+        if (!isActive) return;
+        const modelIds = (data || []).map((c) => c.vehicle_model_id);
+        setSelectedModelIds(modelIds);
+        if (modelIds.length > 0) {
+          setHasVehicleCompatibility(true);
+        }
+        compatLoadedRef.current = true;
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [productToEdit?.id, isOpen]);
 
   const handleChange = (e) => {
     const { id, value } = e.target;
@@ -182,7 +163,7 @@ function ProductModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { selectedVehicleModels, vehicle_kategori_id, vehicle_brand_id, vehicle_model_id, vehicle_code_id, ...finalProduct } = {
+    const finalProduct = {
       ...product,
       harga_beli: Number(product.harga_beli) || 0,
       harga_jual: Number(product.harga_jual) || 0,
@@ -209,12 +190,27 @@ function ProductModal({
       tags: product.tags || null,
     };
 
-    await onSave(finalProduct, hasVehicleCompatibility ? (selectedVehicleModels || []) : [], hasVehicleCompatibility ? {
-      vehicle_kategori_id: product.vehicle_kategori_id || null,
-      vehicle_brand_id: product.vehicle_brand_id || null,
-      vehicle_model_id: product.vehicle_model_id || null,
-      vehicle_code_id: product.vehicle_code_id || null,
-    } : {});
+    // Susun rows pivot lengkap dari data in-memory (tanpa text-match merek).
+    // vehicle_code_id diisi bila model punya tepat 1 kode aktif.
+    const buildCompatibilityRows = () =>
+      selectedModelIds.map((modelId) => {
+        const m = allModels.find((x) => x.id === modelId);
+        const activeCodes = m ? m.codes.filter((c) => c.is_active !== false) : [];
+        return {
+          vehicle_model_id: modelId,
+          vehicle_brand_id: m ? m.brand_id : null,
+          vehicle_kategori_id: m ? m.vehicle_kategori_id : null,
+          vehicle_code_id: activeCodes.length === 1 ? activeCodes[0].id : null,
+        };
+      });
+
+    const compatibilityRows = compatLoadedRef.current
+      ? hasVehicleCompatibility
+        ? buildCompatibilityRows()
+        : []
+      : null;
+
+    await onSave(finalProduct, compatibilityRows);
   };
 
   const applyDiscountPreset = (pct) => {
@@ -353,46 +349,110 @@ function ProductModal({
     setProduct((prev) => ({ ...prev, [slot]: "" }));
   };
 
-  const fetchVehicleKategoris = async () => {
-    const { data } = await supabase.from("vehicle_kategori").select("*").order("name");
-    setVehicleKategoris(data || []);
-  };
-
-  const fetchVehicleBrands = async () => {
-    const { data } = await supabase.from("vehicle_brands").select("*").order("name");
-    setVehicleBrands(data || []);
-  };
-
-  const fetchVehicleModels = async (brandId) => {
-    if (!brandId) {
-      setVehicleModels([]);
-      return;
-    }
+  const fetchAllVehicleModels = async () => {
+    setLoadingVehicleData(true);
     const { data } = await supabase
       .from("vehicle_models")
-      .select("*")
-      .eq("brand_id", Number(brandId))
+      .select(
+        "id, name, brand_id, vehicle_kategori_id, is_active, vehicle_brands(id, name), vehicle_kategori(id, name), vehicle_codes(id, code, name, year_start, year_end, is_active)"
+      )
       .order("name");
-    setVehicleModels(data || []);
-  };
-
-  const fetchVehicleCodes = async (brandId, modelId) => {
-    let query = supabase.from("vehicle_codes").select("*").eq("is_active", true);
-    if (brandId) query = query.eq("vehicle_brand_id", Number(brandId));
-    if (modelId) query = query.eq("vehicle_model_id", Number(modelId));
-    const { data } = await query.order("code");
-    setVehicleCodes(data || []);
+    const activeModels = (data || [])
+      .filter((m) => m.is_active !== false)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        brand_id: m.brand_id,
+        brand_name: m.vehicle_brands?.name || "-",
+        kategori_id: m.vehicle_kategori_id,
+        kategori_name: m.vehicle_kategori?.name || "",
+        kategori_icon: m.vehicle_kategori?.icon || "",
+        codes: (m.vehicle_codes || []).filter((c) => c.is_active !== false),
+      }));
+    setAllModels(activeModels);
+    setLoadingVehicleData(false);
   };
 
   const toggleVehicleModel = (modelId) => {
-    setProduct((prev) => {
-      const current = prev.selectedVehicleModels || [];
-      const updated = current.includes(modelId)
-        ? current.filter((id) => id !== modelId)
-        : [...current, modelId];
-      return { ...prev, selectedVehicleModels: updated };
+    setSelectedModelIds((prev) =>
+      prev.includes(modelId)
+        ? prev.filter((id) => id !== modelId)
+        : [...prev, modelId],
+    );
+  };
+
+  // Additive: menambah semua model yang cocok predikat tanpa menghapus pilihan lain
+  const addModelsWhere = (predicate) => {
+    setSelectedModelIds((prev) => {
+      const toAdd = allModels
+        .filter((m) => predicate(m) && !prev.includes(m.id))
+        .map((m) => m.id);
+      return [...prev, ...toAdd];
     });
   };
+
+  const handleGroupToggle = (group) => {
+    const ids = group.models.map((m) => m.id);
+    const allSelected = ids.every((id) => selectedModelIds.includes(id));
+    setSelectedModelIds((prev) =>
+      allSelected
+        ? prev.filter((id) => !ids.includes(id))
+        : [...new Set([...prev, ...ids])],
+    );
+  };
+
+  const clearAllSelected = () => setSelectedModelIds([]);
+
+  const brandList = useMemo(() => {
+    const seen = new Map();
+    allModels.forEach((m) => {
+      if (!seen.has(m.brand_id)) seen.set(m.brand_id, m.brand_name);
+    });
+    return [...seen.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allModels]);
+
+  const kategoriList = useMemo(() => {
+    const seen = new Map();
+    allModels.forEach((m) => {
+      if (m.kategori_id && !seen.has(m.kategori_id)) {
+        seen.set(m.kategori_id, { name: m.kategori_name, icon: m.kategori_icon });
+      }
+    });
+    return [...seen.entries()]
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allModels]);
+
+  const filteredModels = useMemo(() => {
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return allModels;
+    return allModels.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        m.brand_name.toLowerCase().includes(q) ||
+        m.codes.some(
+          (c) =>
+            c.code.toLowerCase().includes(q) ||
+            (c.name || "").toLowerCase().includes(q),
+        ),
+    );
+  }, [allModels, modelSearch]);
+
+  const groupedFiltered = useMemo(() => {
+    const order = [];
+    const byBrand = new Map();
+    filteredModels.forEach((m) => {
+      if (!byBrand.has(m.brand_name)) {
+        const g = { brandName: m.brand_name, models: [] };
+        byBrand.set(m.brand_name, g);
+        order.push(g);
+      }
+      byBrand.get(m.brand_name).models.push(m);
+    });
+    return order.sort((a, b) => a.brandName.localeCompare(b.brandName));
+  }, [filteredModels]);
 
   if (!isOpen) return null;
 
@@ -758,16 +818,8 @@ function ProductModal({
                       onChange={(e) => {
                         setHasVehicleCompatibility(e.target.checked);
                         if (!e.target.checked) {
-                          setProduct((prev) => ({
-                            ...prev,
-                            selectedVehicleModels: [],
-                            vehicle_kategori_id: "",
-                            vehicle_brand_id: "",
-                            vehicle_model_id: "",
-                            vehicle_code_id: "",
-                          }));
-                          setVehicleModels([]);
-                          setVehicleCodes([]);
+                          setSelectedModelIds([]);
+                          setModelSearch("");
                         }
                       }}
                       className="rounded"
@@ -776,54 +828,169 @@ function ProductModal({
                       Kompatibel dengan kendaraan (opsional)
                     </label>
                   </div>
-                  
-                  <div style={{ display: hasVehicleCompatibility ? 'block' : 'none' }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="vehicle_kategori_id" className="block mb-1 text-sm font-medium text-slate-700">Kategori Motor</label>
-                      <select id="vehicle_kategori_id" value={product.vehicle_kategori_id || ""} onChange={handleChange} className="w-full p-2 border rounded bg-white">
-                        <option value="">-- Pilih Kategori --</option>
-                        {vehicleKategoris.map(k => <option key={k.id} value={k.id}>{k.icon} {k.name}</option>)}
-                      </select>
+
+                  {hasVehicleCompatibility && (
+                    <div className="border rounded-lg p-3 space-y-3 bg-slate-50">
+                      {loadingVehicleData ? (
+                        <p className="text-sm text-slate-500 animate-pulse">Memuat data kendaraan...</p>
+                      ) : allModels.length === 0 ? (
+                        <p className="text-sm text-slate-500">
+                          Belum ada data kendaraan. Tambahkan melalui menu <strong>Manajemen Kendaraan</strong> atau jalankan <code>scripts/import-vehicle-data.js</code>.
+                        </p>
+                      ) : (
+                        <>
+                          {/* Search */}
+                          <input
+                            type="text"
+                            value={modelSearch}
+                            onChange={(e) => setModelSearch(e.target.value)}
+                            placeholder="Cari tipe / kode / merek motor..."
+                            className="w-full p-2 border rounded text-sm bg-white"
+                          />
+
+                          {/* Preset chips (additive) */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Pilih cepat:</span>
+                            <button
+                              type="button"
+                              onClick={() => addModelsWhere(() => true)}
+                              className="px-2.5 py-1 rounded-full bg-slate-900 text-white text-xs font-semibold hover:bg-slate-700 transition-colors"
+                            >
+                              ⚡ Semua ({allModels.length})
+                            </button>
+                            {kategoriList.map((k) => (
+                              <button
+                                key={`kat-${k.id}`}
+                                type="button"
+                                onClick={() => addModelsWhere((m) => m.kategori_id === k.id)}
+                                className="px-2.5 py-1 rounded-full bg-white border border-slate-300 text-xs font-medium hover:border-orange-400 hover:text-orange-600 transition-colors"
+                              >
+                                {k.icon} {k.name}
+                              </button>
+                            ))}
+                            {brandList.map((b) => (
+                              <button
+                                key={`br-${b.id}`}
+                                type="button"
+                                onClick={() => addModelsWhere((m) => m.brand_id === b.id)}
+                                className="px-2.5 py-1 rounded-full bg-white border border-slate-300 text-xs font-medium hover:border-orange-400 hover:text-orange-600 transition-colors"
+                              >
+                                {b.name}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Selected chips */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-semibold text-slate-600">Dipilih ({selectedModelIds.length}):</span>
+                              {selectedModelIds.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={clearAllSelected}
+                                  className="text-xs font-medium text-red-500 hover:text-red-700"
+                                >
+                                  Kosongkan Semua
+                                </button>
+                              )}
+                            </div>
+                            {selectedModelIds.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                                {selectedModelIds.map((id) => {
+                                  const m = allModels.find((x) => x.id === id);
+                                  return (
+                                    <span
+                                      key={id}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-medium"
+                                    >
+                                      {m ? m.name : `#${id}`}
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleVehicleModel(id)}
+                                        className="hover:text-red-600 font-bold leading-none"
+                                        aria-label={`Hapus ${m ? m.name : id}`}
+                                      >
+                                        ×
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Grouped list per merek */}
+                          <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
+                            {groupedFiltered.length === 0 && (
+                              <p className="p-3 text-sm text-slate-500 text-center">
+                                Tidak ada hasil untuk "{modelSearch}"
+                              </p>
+                            )}
+                            {groupedFiltered.map((group) => {
+                              const ids = group.models.map((m) => m.id);
+                              const selCount = ids.filter((id) => selectedModelIds.includes(id)).length;
+                              const allSelected = selCount === ids.length;
+                              return (
+                                <div key={group.brandName}>
+                                  <div className="sticky top-0 z-10 flex items-center justify-between px-3 py-2 bg-slate-100 border-b border-slate-200">
+                                    <span className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                                      {group.brandName} ({selCount}/{ids.length})
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleGroupToggle(group)}
+                                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                                    >
+                                      {allSelected ? "Batal pilih semua" : "Pilih semua"}
+                                    </button>
+                                  </div>
+                                  <ul className="p-1.5">
+                                    {group.models.map((model) => {
+                                      const checked = selectedModelIds.includes(model.id);
+                                      return (
+                                        <li key={model.id}>
+                                          <label
+                                            className={`flex items-center gap-2 py-1.5 px-1.5 rounded cursor-pointer ${checked ? "bg-orange-50/70" : "hover:bg-slate-50"}`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={() => toggleVehicleModel(model.id)}
+                                              className="rounded shrink-0"
+                                            />
+                                            <span className="text-sm text-slate-700 flex-1 min-w-0 truncate" title={model.name}>
+                                              {model.name}
+                                            </span>
+                                            <span className="flex items-center gap-1 shrink-0">
+                                              {model.codes.slice(0, 2).map((c) => (
+                                                <span
+                                                  key={c.id}
+                                                  title={`${c.name}${c.year_start ? ` · ${c.year_start}-${c.year_end || "sekarang"}` : ""}`}
+                                                  className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono font-semibold text-slate-600 whitespace-nowrap"
+                                                >
+                                                  {c.code}
+                                                  {c.year_start ? `·${String(c.year_start).slice(2)}–${c.year_end ? String(c.year_end).slice(2) : "→"}` : ""}
+                                                </span>
+                                              ))}
+                                              {model.codes.length > 2 && (
+                                                <span className="text-[10px] text-slate-400" title={model.codes.slice(2).map(c => c.code).join(", ")}>
+                                                  +{model.codes.length - 2}
+                                                </span>
+                                              )}
+                                            </span>
+                                          </label>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <div>
-                      <label htmlFor="vehicle_brand_id" className="block mb-1 text-sm font-medium text-slate-700">Merek Motor</label>
-                      <select id="vehicle_brand_id" value={product.vehicle_brand_id || ""} onChange={(e) => { handleChange(e); fetchVehicleModels(e.target.value); }} className="w-full p-2 border rounded bg-white">
-                        <option value="">-- Pilih Merek --</option>
-                        {vehicleBrands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="vehicle_model_id" className="block mb-1 text-sm font-medium text-slate-700">Tipe Motor (Compatible)</label>
-                      <div className="border rounded p-2 max-h-40 overflow-y-auto">
-                        {vehicleModels.length === 0 ? (
-                          <p className="text-sm text-slate-500">Pilih merek terlebih dahulu</p>
-                        ) : (
-                          vehicleModels.map(model => {
-                            const isChecked = (product.selectedVehicleModels || []).includes(model.id);
-                            return (
-                              <label key={model.id} className="flex items-center gap-2 py-1 hover:bg-slate-50 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => toggleVehicleModel(model.id)}
-                                  className="rounded"
-                                />
-                                <span className="text-sm">{model.name}</span>
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">{(product.selectedVehicleModels || []).length} model dipilih</p>
-                    </div>
-                    <div>
-                      <label htmlFor="vehicle_code_id" className="block mb-1 text-sm font-medium text-slate-700">Kode Motor</label>
-                      <select id="vehicle_code_id" value={product.vehicle_code_id || ""} onChange={handleChange} className="w-full p-2 border rounded bg-white" disabled={!vehicleCodes.length}>
-                        <option value="">-- Pilih Kode --</option>
-                        {vehicleCodes.map(c => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
               <div>

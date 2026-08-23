@@ -262,7 +262,7 @@ function Produk() {
     setIsModalOpen(true);
   };
 
-  const handleSaveProduct = async (productData, selectedVehicleModels = [], vehicleData = {}) => {
+  const handleSaveProduct = async (productData, compatibilityRows = []) => {
     setIsSaving(true);
     setSaveError("");
     try {
@@ -301,28 +301,36 @@ function Produk() {
         throw error;
       }
 
-      // Save vehicle compatibility pivot
-      if (savedProductId && selectedVehicleModels.length > 0) {
-        const { data: brandData } = await supabase
-          .from("vehicle_brands")
-          .select("id")
-          .eq("name", dataToSave.merek)
-          .single();
-
-        const compatibilities = selectedVehicleModels.map((modelId) => ({
-          product_id: savedProductId,
-          vehicle_model_id: modelId,
-          vehicle_brand_id: brandData?.id || null,
-          vehicle_kategori_id: vehicleData.vehicle_kategori_id || null,
-          is_primary: false,
-        }));
-
-        const { error: compatError } = await supabase
+      // Sinkronisasi pivot kompatibilitas: delete-then-insert.
+      // compatibilityRows === null → data belum termuat di modal, JANGAN sentuh pivot (guard anti-wipe).
+      if (savedProductId && compatibilityRows !== null) {
+        const { error: deleteError } = await supabase
           .from("product_vehicle_compatibilities")
-          .upsert(compatibilities, { onConflict: "product_id,vehicle_model_id" });
+          .delete()
+          .eq("product_id", savedProductId);
+        if (deleteError) {
+          console.error("Failed to clear compatibilities:", deleteError);
+        }
 
-        if (compatError) {
-          console.error("Failed to save compatibilities:", compatError);
+        if (compatibilityRows.length > 0) {
+          const rows = compatibilityRows.map((row) => ({
+            product_id: savedProductId,
+            vehicle_model_id: row.vehicle_model_id,
+            vehicle_brand_id: row.vehicle_brand_id ?? null,
+            vehicle_kategori_id: row.vehicle_kategori_id ?? null,
+            vehicle_code_id: row.vehicle_code_id ?? null,
+            is_primary: false,
+          }));
+          // Insert per chunk agar aman dari batas request PostgREST
+          for (let i = 0; i < rows.length; i += 100) {
+            const { error: insertError } = await supabase
+              .from("product_vehicle_compatibilities")
+              .insert(rows.slice(i, i + 100));
+            if (insertError) {
+              console.error("Failed to save compatibilities:", insertError);
+              break;
+            }
+          }
         }
       }
 

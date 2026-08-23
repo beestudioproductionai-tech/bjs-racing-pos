@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 
-function VehicleCodeModal({ isOpen, onClose, codeToEdit, onSave, models }) {
+function VehicleCodeModal({ isOpen, onClose, codeToEdit, onSave, models, prefillModelId }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [modelId, setModelId] = useState("");
@@ -19,11 +19,11 @@ function VehicleCodeModal({ isOpen, onClose, codeToEdit, onSave, models }) {
     } else {
       setCode("");
       setName("");
-      setModelId("");
+      setModelId(prefillModelId || "");
       setYearStart("");
       setYearEnd("");
     }
-  }, [codeToEdit, isOpen]);
+  }, [codeToEdit, isOpen, prefillModelId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,7 +45,12 @@ function VehicleCodeModal({ isOpen, onClose, codeToEdit, onSave, models }) {
       if (error) throw error;
       onSave();
     } catch (error) {
-      alert("Gagal menyimpan: " + error.message);
+      const msg = error?.message || "";
+      alert(
+        msg.includes("duplicate key") || msg.includes("unique")
+          ? "Kode itu sudah dipakai. Gunakan kode lain."
+          : "Gagal menyimpan: " + msg,
+      );
     } finally {
       setSaving(false);
     }

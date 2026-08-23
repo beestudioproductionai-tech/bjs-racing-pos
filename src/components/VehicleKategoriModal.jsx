@@ -30,7 +30,12 @@ function VehicleKategoriModal({ isOpen, onClose, kategoriToEdit, onSave }) {
       if (error) throw error;
       onSave();
     } catch (error) {
-      alert("Gagal menyimpan: " + error.message);
+      const msg = error?.message || "";
+      alert(
+        msg.includes("duplicate key") || msg.includes("unique")
+          ? "Nama kategori sudah dipakai. Gunakan nama lain."
+          : "Gagal menyimpan: " + msg,
+      );
     } finally {
       setSaving(false);
     }
