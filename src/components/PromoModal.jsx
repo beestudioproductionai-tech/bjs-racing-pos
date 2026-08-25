@@ -11,10 +11,36 @@ const GRADIENT_OPTIONS = [
   { label: "Merah", value: "from-red-700 via-red-600 to-red-700" },
 ];
 
+const WIB = "Asia/Jakarta";
+
+// Konversi ISO (timestamptz) -> string "YYYY-MM-DDTHH:mm" dalam WIB untuk
+// diisi ke input datetime-local. Sebelumnya memakai toISOString() (UTC) sehingga
+// input menampilkan waktu UTC, bukan WIB.
 const formatDateForInput = (dateStr) => {
   if (!dateStr) return "";
   const d = new Date(dateStr);
-  return d.toISOString().slice(0, 16);
+  if (isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: WIB,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(d)
+    .replace(" ", "T");
+};
+
+// Input datetime-local dianggap waktu LOKAL WIB. Supabase menyimpan timestamptz
+// sebagai UTC, dan literal tanpa zona akan ditafsirkan sebagai UTC (sesi Supabase
+// = UTC) sehingga bergeser +7 jam. Eksplisit tambahkan offset +07:00 agar
+// tersimpan sebagai UTC yang benar (mis. 25 Agt 23.59 WIB -> 25 Agt 16.59 UTC).
+const toUtcIso = (localValue) => {
+  if (!localValue) return null;
+  const d = new Date(localValue + ":00+07:00");
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
 };
 
 function PromoModal({ isOpen, onClose, onSave, promoToEdit }) {
@@ -113,8 +139,8 @@ function PromoModal({ isOpen, onClose, onSave, promoToEdit }) {
     e.preventDefault();
     onSave({
       ...promo,
-      valid_from: promo.valid_from || null,
-      valid_until: promo.valid_until || null,
+      valid_from: toUtcIso(promo.valid_from),
+      valid_until: toUtcIso(promo.valid_until),
     });
   };
 

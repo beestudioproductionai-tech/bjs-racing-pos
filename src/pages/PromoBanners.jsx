@@ -5,7 +5,10 @@ import PromoModal from "../components/PromoModal";
 
 const formatDate = (dateString) => {
   if (!dateString) return "-";
-  return new Date(dateString).toLocaleDateString("id-ID", {
+  // Tampilkan selalu dalam WIB (Asia/Jakarta) agar konsisten dengan input,
+  // terlepas dari zona waktu browser admin.
+  return new Date(dateString).toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
     day: "2-digit",
     month: "short",
     year: "numeric",
