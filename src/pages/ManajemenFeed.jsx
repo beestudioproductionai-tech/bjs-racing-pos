@@ -18,6 +18,7 @@ const CATEGORIES = [
   { value: "tips_spray_paint", label: "Tips Spray Paint" },
   { value: "panduan_sparepart", label: "Panduan Sparepart" },
   { value: "news", label: "News & Trends" },
+  { value: "layanan_promo", label: "Layanan & Promo" },
   { value: "bts", label: "Behind the Scene" },
 ];
 
