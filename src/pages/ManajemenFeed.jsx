@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
-import { FiPlus, FiEdit, FiTrash2, FiMessageSquare, FiX, FiUpload } from "react-icons/fi";
+import { FiPlus, FiEdit, FiTrash2, FiMessageSquare, FiX, FiUpload, FiEye } from "react-icons/fi";
 import imageCompression from "browser-image-compression";
+import RichTextEditor from "../components/RichTextEditor";
 
 const POST_TYPES = [
   { value: "image", label: "Gambar" },
@@ -52,6 +53,7 @@ const ManajemenFeed = () => {
   const [productResults, setProductResults] = useState([]);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [selectedProductName, setSelectedProductName] = useState("");
+  const [previewMode, setPreviewMode] = useState(false);
 
   const [form, setForm] = useState({
     title: "",
@@ -125,6 +127,7 @@ const ManajemenFeed = () => {
       published_at: new Date().toISOString().slice(0, 16),
     });
     setSelectedProducts([]);
+    setPreviewMode(false);
     setIsModalOpen(true);
   };
 
@@ -197,6 +200,7 @@ const ManajemenFeed = () => {
 
     console.log("[ManajemenFeed] mapped selected products:", mapped.length, "source:", source);
     setSelectedProducts(mapped);
+    setPreviewMode(false);
     setIsModalOpen(true);
   };
 
@@ -470,7 +474,7 @@ const ManajemenFeed = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-start p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl my-8">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl my-8">
             <div className="flex justify-between items-center p-6 border-b border-slate-100">
               <h2 className="text-xl font-bold text-slate-800">{editingPost ? "Edit Post" : "Tambah Post Baru"}</h2>
               <button onClick={() => setIsModalOpen(false)} className="p-1 hover:bg-slate-100 rounded">
@@ -489,13 +493,24 @@ const ManajemenFeed = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Konten (HTML atau teks)</label>
-                <textarea
-                  value={form.content}
-                  onChange={(e) => setForm({ ...form, content: e.target.value })}
-                  rows={6}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-semibold text-slate-700">Konten Artikel</label>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode(!previewMode)}
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-orange-600 transition-colors"
+                  >
+                    <FiEye className="w-3.5 h-3.5" />
+                    {previewMode ? "Edit" : "Preview"}
+                  </button>
+                </div>
+                {previewMode ? (
+                  <div className="border border-slate-200 rounded-lg p-4 min-h-[200px] prose prose-sm prose-slate max-w-none">
+                    <div dangerouslySetInnerHTML={{ __html: form.content || '<p class="text-slate-400 italic">Belum ada konten.</p>' }} />
+                  </div>
+                ) : (
+                  <RichTextEditor content={form.content} onChange={(html) => setForm({ ...form, content: html })} />
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
