@@ -180,6 +180,12 @@ export async function getBjsExpressOrders(status = "paid,shipped") {
   return res.json();
 }
 
+export async function getBjsExpressLive() {
+  const res = await fetch(`${API_BASE}/api/bjs-express/live`);
+  if (!res.ok) throw new Error("Gagal memuat data kurir live.");
+  return res.json();
+}
+
 export async function assignCourierToOrder(payload) {
   const res = await fetch(`${API_BASE}/api/bjs-express/assign`, {
     method: "POST",

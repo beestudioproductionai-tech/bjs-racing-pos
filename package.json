@@ -29,6 +29,7 @@
     "express": "^5.2.1",
     "googleapis": "^176.0.0",
     "html-to-image": "^1.11.13",
+    "maplibre-gl": "^6.6.0",
     "multer": "^2.2.0",
     "pg": "^8.22.0",
     "postcss": "^8.4.38",

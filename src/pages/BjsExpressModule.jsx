@@ -5,6 +5,8 @@
 //  - Tab Penugasan (tugaskan kurir ke pesanan BJS Express)
 import { useState, useEffect, Fragment } from "react";
 import BjsExpressAreas from "./BjsExpressAreas.jsx";
+import AssignmentRouteMap from "../components/AssignmentRouteMap.jsx";
+import { getBjsExpressLive } from "../lib/biteshipClient.js";
 import {
   getCouriers,
   createCourier,
@@ -404,6 +406,22 @@ function PenugasanTab() {
   const [historyFor, setHistoryFor] = useState(null);
   const [assignMap, setAssignMap] = useState({});
   const [noteMap, setNoteMap] = useState({});
+  const [routeFor, setRouteFor] = useState(null);
+  const [liveByAssignment, setLiveByAssignment] = useState({});
+
+  const openRoute = async (order) => {
+    try {
+      const live = await getBjsExpressLive();
+      const byId = {};
+      (live || []).forEach((it) => {
+        byId[it.assignment_id] = it.location || null;
+      });
+      setLiveByAssignment(byId);
+    } catch {
+      setLiveByAssignment({});
+    }
+    setRouteFor(order);
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -627,6 +645,12 @@ function PenugasanTab() {
                                 >
                                   {historyFor === order.id ? "Tutup Riwayat" : "Riwayat"}
                                 </button>
+                                <button
+                                  onClick={() => openRoute(order)}
+                                  className="bg-emerald-600 text-white font-bold py-1 px-3 rounded-lg hover:bg-emerald-700 text-xs"
+                                >
+                                  Peta Rute
+                                </button>
                               </div>
                             </div>
                           ) : (
@@ -700,6 +724,50 @@ function PenugasanTab() {
           </div>
         )}
       </div>
+
+      {routeFor &&
+        (() => {
+          const a = routeFor.courier_assignments?.[0] || null;
+          const addr = routeFor.shipping_address || {};
+          const destLat = Number(addr.latitude);
+          const destLng = Number(addr.longitude);
+          const assignment = {
+            id: a?.id,
+            status: a?.status,
+            order: { order_number: routeFor.order_number },
+            courier: a?.couriers || null,
+            destination:
+              Number.isFinite(destLat) && Number.isFinite(destLng) && destLat !== 0 && destLng !== 0
+                ? { lat: destLat, lng: destLng }
+                : null,
+            location: liveByAssignment[a?.id] || null,
+          };
+          return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between p-5 border-b">
+                  <h2 className="text-xl font-bold">Peta Rute — #{routeFor.order_number}</h2>
+                  <button
+                    onClick={() => setRouteFor(null)}
+                    className="text-slate-500 hover:text-slate-700"
+                    type="button"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="p-5">
+                  {assignment.destination ? (
+                    <AssignmentRouteMap assignment={assignment} height={440} />
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      Alamat pelanggan belum memiliki koordinat tujuan.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }

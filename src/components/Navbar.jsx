@@ -71,6 +71,11 @@ function Navbar({ isOpen, onLinkClick }) {
       icon: <FiTruck />,
     },
     {
+      name: "Peta Kurir Live",
+      path: "/bjs-express/peta-live",
+      icon: <FiMapPin />,
+    },
+    {
       name: "Penjualan Grosir",
       path: "/penjualan-grosir",
       icon: <FiBriefcase />,

@@ -9,6 +9,7 @@ import {
   fetchRajaOngkirSubdistricts,
 } from "../lib/biteshipClient.js";
 import { checkBiteshipRates, updateReferenceRates } from "../lib/biteshipClient.js";
+import AreaMapPicker from "../components/AreaMapPicker.jsx";
 
 function BjsExpressAreaModal({ isOpen, onClose, onSave, areaToEdit }) {
   const [form, setForm] = useState({
@@ -332,6 +333,13 @@ function BjsExpressAreaModal({ isOpen, onClose, onSave, areaToEdit }) {
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Koordinat Destinasi
               </label>
+              <AreaMapPicker
+                latitude={form.dest_lat}
+                longitude={form.dest_lng}
+                onLatLng={({ lat, lng }) =>
+                  setForm((f) => ({ ...f, dest_lat: String(lat), dest_lng: String(lng) }))
+                }
+              />
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Latitude</label>
@@ -355,7 +363,7 @@ function BjsExpressAreaModal({ isOpen, onClose, onSave, areaToEdit }) {
                 </div>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Koordinat akan terisi otomatis jika Anda memilih area dari search Biteship. Anda juga bisa mengedit manual.
+                Koordinat terisi otomatis dari peta atau search Biteship. Anda juga bisa mengedit manual.
               </p>
             </div>
             <div>

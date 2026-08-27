@@ -21,7 +21,7 @@
         },
         {
           "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
+          "value": "camera=(), microphone=()"
         },
         {
           "key": "Strict-Transport-Security",
@@ -29,7 +29,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; img-src 'self' data: https://ykotzsmncvyfveypeevb.supabase.co https://*.supabase.co https://img.youtube.com https://i.ytimg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://ykotzsmncvyfveypeevb.supabase.co https://*.supabase.co; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.google-analytics.com https://*.google-analytics.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;"
+          "value": "default-src 'self'; img-src 'self' data: blob: https://ykotzsmncvyfveypeevb.supabase.co https://*.supabase.co https://img.youtube.com https://i.ytimg.com https://tiles.openfreemap.org https://*.openfreemap.org; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://*.openfreemap.org; font-src 'self' data: https://fonts.openmaptiles.org; connect-src 'self' https://ykotzsmncvyfveypeevb.supabase.co https://*.supabase.co wss://*.supabase.co https://tiles.openfreemap.org https://*.openfreemap.org https://fonts.openmaptiles.org https://router.project-osrm.org; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.google-analytics.com https://*.google-analytics.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;"
         }
       ]
     }
@@ -98,6 +98,10 @@
     {
       "source": "/api/bjs-express/orders",
       "destination": "/api/bjs-express/orders.js"
+    },
+    {
+      "source": "/api/bjs-express/live",
+      "destination": "/api/bjs-express/live.js"
     },
     {
       "source": "/api/bjs-express/assign",
